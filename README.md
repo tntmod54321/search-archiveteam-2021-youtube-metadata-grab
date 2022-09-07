@@ -6,4 +6,4 @@
 tested on windows 10 with python 3.9
 
 update --help  
-
+udate example_query
