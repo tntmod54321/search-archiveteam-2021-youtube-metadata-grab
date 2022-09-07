@@ -7,6 +7,7 @@ import sys
 import json
 import zstandard as zstd
 import io
+import time
 
 files_folder = ""
 query_json = ""
@@ -39,11 +40,14 @@ for arg in sys.argv[1:]:
 
 file = sys.argv[1]
 with io.BytesIO() as dcBuffer:
+	now = time.time()
+	
 	with open(file, "rb") as f:
 		dctx = zstd.ZstdDecompressor()
-		dcBuffer.write(dctx.decompress(f.read(), max_output_size=7340032))# 7GB max filesize
-	dcBuffer.seek(0)
+		dctx.copy_stream(f, dcBuffer, read_size=8192, write_size=16384) # streaming method instead of one-shot
+		# dcBuffer.write(dctx.decompress(f.read(), max_output_size=7340032))# 7GB max filesize
 	
+	dcBuffer.seek(0) # have to do this for each read()-like operation
 	for line in dcBuffer.readlines():
 		print(json.loads(line)["title"])
 
