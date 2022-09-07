@@ -8,11 +8,18 @@ import json
 import zstandard as zstd
 import io
 import time
+from os import listdir
+from os.path import isfile, isdir, splitext, split
 
 files_folder = ""
 query_json = ""
 outputdir = ""
 file_offset = 0
+
+zstd_readsize=8192
+zstd_writesize=16384
+
+### parse args
 
 def printHelp():
 	# print sections for different downloaders (programmatically -> _downloaders -> downloader.info["help"]
@@ -35,19 +42,46 @@ for arg in sys.argv[1:]:
 
 # if "" in [files_folder, query_json, outputdir]: printHelp()
 
-# Reusing a ZstdCompressor or ZstdDecompressor instance for multiple operations is
-# faster than instantiating a new ZstdCompressor or ZstdDecompressor for each operation
+### build list of zstd files
+
+def find_files(fdir, fext):
+	directories = [fdir]
+	files = []
+	# traverse directories looking for files
+	for directory in directories:
+		for f in listdir(directory):
+			if isfile(directory+"/"+f): files.append(directory+"/"+f)
+			elif isdir(directory+"/"+f): directories.append(directory+"/"+f)
+			else: print("you shouldn't be seeing this", directory, f)
+
+
+	files2=[]
+	# remove non fext files
+	for file in files:
+		x, extension = splitext(file)
+		if extension.lower() == fext:
+			files2.append(file)
+	print("found {} {} files in {}".format(len(files2), fext, fdir))
+	return files2
+
+zstdfiles = find_files(files_folder, ".zst")
+zstd_filenames=[]
+for file in zstdfiles:
+	zstd_filenames.append(split(file)[1])
+zstd_filenames.sort()
+
+exit()
+
+
+### search zstd files
 
 file = sys.argv[1]
-with io.BytesIO() as dcBuffer:
-	now = time.time()
-	
+dctx = zstd.ZstdDecompressor() # reuse decompressor object
+with io.BytesIO() as dcBuffer: # new bytesio obj, idk about safely reusing them
 	with open(file, "rb") as f:
-		dctx = zstd.ZstdDecompressor()
-		dctx.copy_stream(f, dcBuffer, read_size=8192, write_size=16384) # streaming method instead of one-shot
-		# dcBuffer.write(dctx.decompress(f.read(), max_output_size=7340032))# 7GB max filesize
+		dctx.copy_stream(f, dcBuffer, read_size=zstd_readsize, write_size=zstd_writesize) # streaming method
 	
-	dcBuffer.seek(0) # have to do this for each read()-like operation
+	dcBuffer.seek(0) # have to do this before each read()-like operation
 	for line in dcBuffer.readlines():
 		print(json.loads(line)["title"])
 
