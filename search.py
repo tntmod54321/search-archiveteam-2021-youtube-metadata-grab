@@ -100,15 +100,6 @@ def writeResults(results, outputdir):
 	
 	return
 
-reading_file=False
-shutdownflag=False
-
-files_folder = ""
-query_json = ""
-outputdir = ""
-management_file = ""
-workerthreads = 1 # change default to 2 or 4
-
 ### parse args
 # update help message
 def printHelp():
@@ -123,6 +114,15 @@ def main():
 	global shutdownflag
 	global L
 	global results
+	
+	reading_file=False
+	shutdownflag=False
+
+	files_folder = ""
+	query_json = ""
+	outputdir = ""
+	management_file = ""
+	workerthreads = 1 # change default to 2 or 4
 	
 	if len(sys.argv[1:]) == 0: printHelp()
 	i=1 # for arguments like [--command value] get the value after the command
