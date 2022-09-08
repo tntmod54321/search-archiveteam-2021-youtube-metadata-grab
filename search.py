@@ -19,6 +19,7 @@ file_offset = 0
 
 #I'm dumb idk if this works properly for numbers that aren't multiples of 10
 stdout_update_interval=1000 # print a '.' every x line searches
+threads = 2
 
 # need to compare regexing the line 80 times vs 
 # loading as json and regexing some fields
@@ -41,10 +42,14 @@ for arg in sys.argv[1:]:
 	if (arg in ["-q", "--query-json"]): query_json = sys.argv[1:][i]
 	if (arg in ["-i", "--input-folder", "--files-folder"]): files_folder = sys.argv[1:][i]
 	if (arg in ["-m", "--search-management-file"]): management_file = sys.argv[1:][i]
+	if (arg in ["-t", "--threads"]): threads = int(sys.argv[1:][i])
 	
 	i+=1
 
 if "" in [files_folder, query_json, outputdir]: printHelp() # these args are critical, print help if not present
+if threads<2:
+	print("2 threads minimum (manager+1 worker)")
+	exit()
 
 ### build list of zstd files
 def find_files(fdir, fext):
@@ -105,14 +110,14 @@ i+=file_offset # keep track of offset
 dctx = zstd.ZstdDecompressor() # reuse decompressor object
 try:
 	for file in zstdfiles[file_offset:]: # get rid of this and instead have a list of searched files
-		results = []
+		results = {}
 		now = time.time()
 		with open(file, "rb") as f: # copy_stream copies the whole thing into memory at once -_-
 			dobj = dctx.stream_reader(f.read())
 			dbuf = io.BufferedReader(dobj)
 			
 			for querycat in queries: # generate results dicts
-				results.append({querycat["filename"]: []})
+				results[querycat["filename"]] = []
 			
 			l=0
 			writemsg(f"searching {file}:\n") # remove newline later
@@ -125,6 +130,7 @@ try:
 				for querycat in queries:
 					queryfilename=querycat["filename"] # remove this
 					for ex in querycat["expressions"]:
+						# continue
 						# if we match with this line for this expression then
 						# append this line to the results for the filename
 						# it's assigned to
@@ -134,10 +140,10 @@ try:
 				if (l/stdout_update_interval).is_integer():
 					writemsg('.')
 			# balls
+			elapsed=time.time()-now
 			print()
 			print(results)
-			print(time.time()-now)
-			exit()
+			print(elapsed)
 		
 		# l is equal to the number of lines checked
 		
@@ -160,4 +166,7 @@ exit()
 # multithreaded searching would definitely require a map file
 # also make the manager thread dump results to disk
 
-estimated time to completion
+# estimated time to completion
+
+# multithread the regex searching
+# round-robin assign the threads expressions and pass them each the line
