@@ -19,11 +19,6 @@ file_offset = 0
 
 #I'm dumb idk if this works properly for numbers that aren't multiples of 10
 stdout_update_interval=1000 # print a '.' every x line searches
-# try tweaking these (higher = more faster?)
-zstd_readsize=8192
-zstd_writesize=16384
-
-zstd_chunkreadsize=131075
 
 # need to compare regexing the line 80 times vs 
 # loading as json and regexing some fields
@@ -77,11 +72,10 @@ zstdfiles.sort()
 ### load queries
 with open(query_json, "rb") as f:
 	queries = json.loads(f.read().decode("utf-8"))
-# these aren't gonna work for names if you want to use reg expressions
-# you need to give each search an output filename
-# or how about results=[] is a list of dicts that are filename: [results]
 
+# create physical query results files
 
+# results=[] is a list of dicts that are filename: [results]
 # find all results in one file
 # when done with that file
 # do for queries:
@@ -99,12 +93,11 @@ def writemsg(msg):
 	sys.stdout.write(msg)
 	sys.stdout.flush()
 
+# benchmark plain regex vs json then regex
 def searchline(string, expression):
 	result=False
-	
+	if re.search(expression, string): result=True
 	return result
-
-# benchmark plain regex vs json then regex
 
 ### search zstd files
 i=0
@@ -113,19 +106,38 @@ dctx = zstd.ZstdDecompressor() # reuse decompressor object
 try:
 	for file in zstdfiles[file_offset:]: # get rid of this and instead have a list of searched files
 		results = []
+		now = time.time()
 		with open(file, "rb") as f: # copy_stream copies the whole thing into memory at once -_-
 			dobj = dctx.stream_reader(f.read())
 			dbuf = io.BufferedReader(dobj)
+			
+			for querycat in queries: # generate results dicts
+				results.append({querycat["filename"]: []})
 			
 			l=0
 			writemsg(f"searching {file}:\n") # remove newline later
 			while True:
 				line = dbuf.readline()
 				if not line: break
+				
+				# search line here
+				str_line=line.decode("utf-8")
+				for querycat in queries:
+					queryfilename=querycat["filename"] # remove this
+					for ex in querycat["expressions"]:
+						# if we match with this line for this expression then
+						# append this line to the results for the filename
+						# it's assigned to
+						if searchline(str_line, ex): results[queryfilename].append(line)
+				
 				l+=1
 				if (l/stdout_update_interval).is_integer():
 					writemsg('.')
 			# balls
+			print()
+			print(results)
+			print(time.time()-now)
+			exit()
 		
 		# l is equal to the number of lines checked
 		
@@ -147,3 +159,5 @@ exit()
 # multi thread searcher? 1 manager thread that doles out files to search and X searcher threads
 # multithreaded searching would definitely require a map file
 # also make the manager thread dump results to disk
+
+estimated time to completion
