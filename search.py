@@ -84,7 +84,7 @@ def worker(tid, fbuffer, expressions):
 	
 	return
 
-def writeResults(results):
+def writeResults(results, outputdir):
 	keys = list(results.keys())
 	
 	file_results={}
@@ -198,7 +198,7 @@ def main():
 						print("thread requested shutdown")
 						os._exit(0)
 					
-					if results: writeResults(results) # make sure to dump all results to disk before moving on to next file
+					if results: writeResults(results, outputdir) # make sure to dump all results to disk before moving on to next file
 					
 					future_statuses=[]
 					for future in futures:
