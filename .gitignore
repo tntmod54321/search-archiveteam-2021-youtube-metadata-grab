@@ -154,3 +154,5 @@ cython_debug/
 queries.json
 *.zst
 /results
+management.json
+errors

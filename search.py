@@ -9,26 +9,27 @@ import zstandard as zstd
 import io
 import time
 from os import listdir, makedirs
-from os.path import isfile, isdir, splitext, split
+from os.path import isfile, isdir, splitext, split, join
 from multiprocessing.pool import ThreadPool
 import concurrent.futures
 from concurrent.futures import *
 import traceback
+import uuid
+import os
+global reading_file
+global shutdownflag
+global L
+reading_file=False
+shutdownflag=False
 
 files_folder = ""
 query_json = ""
 outputdir = ""
 management_file = ""
-file_offset = 0
-
-#I'm dumb idk if this works properly for numbers that aren't multiples of 10
-stdout_update_interval=1000 # print a '.' every x line searches
-workerthreads = 2
-
-# need to compare regexing the line 80 times vs 
-# loading as json and regexing some fields
+workerthreads = 1 # change default to 2 or 4
 
 ### parse args
+# update help message
 def printHelp():
 	# print sections for different downloaders (programmatically -> _downloaders -> downloader.info["help"]
 	# list valid ebay resolutions (leave blank for the max available)
@@ -41,7 +42,6 @@ i=1 # for arguments like [--command value] get the value after the command
 # first arg in sys.argv is the python file
 for arg in sys.argv[1:]:
 	if (arg in ["help", "/?", "-h", "--help"]): printHelp()
-	if (arg == "--offset"): file_offset = int(sys.argv[1:][i]) # offset is ignored if you use a search management file
 	if (arg in ["-o", "--output-dir"]): outputdir = sys.argv[1:][i]
 	if (arg in ["-q", "--query-json"]): query_json = sys.argv[1:][i]
 	if (arg in ["-i", "--input-folder", "--files-folder"]): files_folder = sys.argv[1:][i]
@@ -50,7 +50,7 @@ for arg in sys.argv[1:]:
 	
 	i+=1
 
-if "" in [files_folder, query_json, outputdir]: printHelp() # these args are critical, print help if not present
+if "" in [files_folder, query_json, outputdir, management_file]: printHelp() # these args are critical, print help if not present
 if workerthreads<1:
 	print("1 thread minimum")
 	exit()
@@ -80,17 +80,14 @@ zstdfiles.sort()
 
 ### load queries
 with open(query_json, "rb") as f:
-	queries = json.loads(f.read().decode("utf-8"))
-
-# create physical query results files
-
-# results=[] is a list of dicts that are filename: [results]
-# find all results in one file
-# when done with that file
-# do for queries:
-# if results then writelines() to filename
-# this way it can write to multiple files
-
+	queries={}
+	x = json.loads(f.read().decode("utf-8"))
+	for y in x:
+		for expression in y["expressions"]:
+			queries[expression] = y["filename"]
+	results_files = []
+	for y in x:
+		results_files.append(y["filename"])
 
 ### create output folder
 try:
@@ -102,109 +99,128 @@ def writemsg(msg):
 	sys.stdout.write(msg)
 	sys.stdout.flush()
 
-# benchmark plain regex vs json then regex
 def searchline(string, expression):
 	result=False
 	if re.search(expression, string): result=True
 	return result
 
-def worker(string, expressions):
-	results=[]
-	try:
-		
-	except:
-		open("errors", "w+") as f:
-			f.write()
-	return results
+def worker(tid, fbuffer, expressions, results):
+	global reading_file
+	global shutdownflag
+	global L
+	
+	while True:
+		try:
+			while True: # get a line to process
+				if shutdownflag: exit()
+				
+				if reading_file: pass
+				else:
+					reading_file = True
+					line = fbuffer.readline()
+					reading_file = False
+					if not line: return # exit thread if no more file to process
+					break
+				time.sleep(0.01)
+			
+			string = line.decode("utf-8")
+			
+			for expression in expressions.keys():
+				result = searchline(string, expression)
+				if result: results[str(uuid.uuid4())] = {"filename": expressions[expression], "binary": line}
+			L+=1
+		except:
+			with open("errors", "a+") as f:
+				f.write(str(traceback.format_exc())+"\n") # traceback thing
+			shutdownflag=True
+			exit() # KILLLL
+	
+	return
 
-# <-- here
-# load management file,
-# remove duplicates from file list to be iterated upon by the decompress/search thingy
+def writeResults(results):
+	keys = list(results.keys())
+	
+	file_results={}
+	for key in keys: # create file dicts
+		file_results[results[key]["filename"]]=[]
+	
+	for key in keys: # .pop results from results dict
+		file_results[results[key]["filename"]].append(results.pop(key)["binary"])
+	
+	for file in file_results.keys(): # .writelines to disk
+		with open(join(outputdir, file), "ab") as f:
+			f.writelines(file_results[file])
+	
+	return
+
+### load management file if exists
+if isfile(management_file):
+	with open(management_file, "rb") as f:
+		completed_files = json.loads(f.read().decode("utf-8"))
+else:
+	completed_files = []
 
 ### search zstd files
-i=0
-i+=file_offset # keep track of offset
-dctx = zstd.ZstdDecompressor() # reuse decompressor object
+executor = ThreadPoolExecutor(max_workers=16) # will limit the amount of threads
+dctx = zstd.ZstdDecompressor() # reuse decompressor object (docs recommend, woohoo!)
 try:
-	for file in zstdfiles[file_offset:]: # get rid of this and instead have a list of searched files
-		results = {}
-		now = time.time()
-		with open(file, "rb") as f: # copy_stream copies the whole thing into memory at once -_-
+	for file in zstdfiles: # should remove searched files listed in management file earlier
+		if file in completed_files:
+			print(f"skipping file {file} (completed)")
+			continue
+		
+		writemsg(f"searching {file}:\n")
+		with open(file, "rb") as f:
 			dobj = dctx.stream_reader(f.read())
 			dbuf = io.BufferedReader(dobj)
+			now=time.time()
+			L=0
+			futures=[]
+			results={}
+			reading_file = False
+			threads_dead=False
+			for i in range(0, workerthreads):
+				future = executor.submit(worker, i, dbuf, queries, results)
+				futures.append(future)
 			
-			for querycat in queries: # generate results dicts
-				results[querycat["filename"]] = []
-			
-			l=0
-			writemsg(f"searching {file}:\n")
+			# wait for workers to die
 			while True:
-				line = dbuf.readline()
-				if not line: break
+				if shutdownflag:
+					print("thread requested shutdown")
+					os._exit(0)
 				
-				str_line=line.decode("utf-8")
+				if results: writeResults(results) # make sure to dump all results to disk before moving on to next file
 				
-				# maybe make the expressions list 
+				future_statuses=[]
+				for future in futures:
+					future_statuses.append(future.done())
 				
-				# create jobs
-				futures=[]
-				###create worker threads
-				for worker in range(0, requeststhreads):
-					future = executor.submit(worker, str_line, expressions)
-					futures.append(future)
+				if threads_dead: break # leave while loop after flushing results
 				
-				while True:
-					for future in futures:
-						
-					time.sleep(0.01)
+				# check if all threads are dead
+				if all(future_statuses): # we do another loop to make sure we flush the results to disk
+					threads_dead=True
+					continue
 				
-				result=[]
-				# wait for jobs
-				# result+= futures
-				
-				for querycat in queries:
-					queryfilename=querycat["filename"] # remove this
-					for ex in querycat["expressions"]:
-						# continue
-						# if we match with this line for this expression then
-						# append this line to the results for the filename
-						# it's assigned to
-							
-						if searchline(str_line, ex): results[queryfilename].append(line)
-				
-				l+=1
-				if (l/stdout_update_interval).is_integer():
-					writemsg('.')
-			print()
-			print(time.time()-now)
+				# time.sleep(0.01)
+				writemsg('.')
+				time.sleep(0.1)
+				# time.sleep(5)
 		
-		print(f"checked {l} lines")
+		### update management file
+		completed_files.append(file)
+		with open(management_file, "wb") as f:
+			f.write(json.dumps(completed_files).encode("utf-8"))
 		
+		exit()
 		sys.stdout.write('\n')
-		i+=1
+		elapsed=time.time()-now
+		print(f"took {elapsed} to search {L} lines ({round(L/elapsed, 2)}/s)")
 except KeyboardInterrupt:
-	if management_file=="": print(f"\nInterrupted! last completed file offset is {i}")
-	else: print("\nInterrupted!")
+	print("\nInterrupted!")
 
-exit()
-
-# func to write query results to disk
+os._exit(0)
 
 # to add:
-# run queries, test different methods for speed (regex search all strings, regex actual expressions)
-# write query results to disk (query in json file: [{"name": name, "regex": regexstr}])
 # better logging (time taken, offset, results count, etc)
-
-# multi thread searcher? 1 manager thread that doles out files to search and X searcher threads
-# multithreaded searching would definitely require a map file
-# also make the manager thread dump results to disk
-
 # estimated time to completion
-
-# multithread the regex searching
-# round-robin assign the threads expressions and pass them each the line
-# or assign a line to each thread
-# is spawning a bunch of threads and waiting for them each line slow
-
-# if you do the thread-per-line thing then maybe make the main thread spawn more threads
-# when the workers are done, time.sleep(0.01)?
