@@ -7,3 +7,5 @@ tested on windows 10 with python 3.9
 
 update --help  
 udate example_query
+
+`py search.py -i "F:\jopik archiveteam 4.5b youtube metadata jsons" -o ./results -q queries.json`

@@ -11,29 +11,11 @@ import time
 from os import listdir, makedirs
 from os.path import isfile, isdir, splitext, split
 
-# you can stream ZST files, right?
-# well, if you wanna stream like 15gb_c/100gb_d file into memory,
-# you (if you're me) have to do it in chunks, if you do that
-# and you're operating with newline-delimited json files,
-# is it possible to not load to the newline and therefor
-# have the last json be incomplete? (and the next, first one
-# almost be incomplete?
-# is it possible for a single, large json to fill the whole thing
-# and not be parsed at all? eieieiei
-
-# ok so I think it just reads that many bytes at once,
-# do while True: dc.readline() instead
-
-# add option to use streaming method and one-shot method. (or just remove the one-shot method lmfao)
-# compare speeds
-# (you use the streaming zstd api either way but .readlines() is one-shot)
-
 files_folder = ""
 query_json = ""
 outputdir = ""
 management_file = ""
 file_offset = 0
-stream_files = True
 
 #I'm dumb idk if this works properly for numbers that aren't multiples of 10
 stdout_update_interval=1000 # print a '.' every x line searches
@@ -64,7 +46,6 @@ for arg in sys.argv[1:]:
 	if (arg in ["-q", "--query-json"]): query_json = sys.argv[1:][i]
 	if (arg in ["-i", "--input-folder", "--files-folder"]): files_folder = sys.argv[1:][i]
 	if (arg in ["-m", "--search-management-file"]): management_file = sys.argv[1:][i]
-	if (arg in ["--one-shot"]): stream_files = False
 	
 	i+=1
 
@@ -123,49 +104,31 @@ def searchline(string, expression):
 	
 	return result
 
-# 4 benchmarks:
-# one-shot vs streaming
-# and plain regex vs json then regex
+# benchmark plain regex vs json then regex
 
 ### search zstd files
 i=0
 i+=file_offset # keep track of offset
 dctx = zstd.ZstdDecompressor() # reuse decompressor object
 try:
-	for file in zstdfiles[file_offset:]:
+	for file in zstdfiles[file_offset:]: # get rid of this and instead have a list of searched files
 		results = []
-		
-		with io.BytesIO() as dcBuffer: # new bytesio obj, idk about safely reusing them
-			with open(file, "rb") as f: # does copy_stream load the whole compressed file into mem?
-				dctx.copy_stream(f, dcBuffer, read_size=zstd_readsize, write_size=zstd_writesize) # streaming method
+		with open(file, "rb") as f: # copy_stream copies the whole thing into memory at once -_-
+			dobj = dctx.stream_reader(f.read())
+			dbuf = io.BufferedReader(dobj)
 			
-			writemsg(f"{file} searches:\n") # remove newline later
-			
-			# replace with
-			# while True:
-			#     x = dcBuffer.readline()
-			#     if not x: break # went through entire file
-			dcBuffer.seek(0) # have to do this before each read()-like operation
 			l=0
-			if stream_files:
-				while True:
-					line = dcBuffer.readline()
-					if not line: break
-					l+=1
-					if (l/stdout_update_interval).is_integer():
-						writemsg('.')
-						#exit()
-			else:
-				lines=dcBuffer.readlines() # streams the whole thing from disk into memory at once
-				for line in lines:
-					# search line here
-					
-					l+=1
-					if (l/stdout_update_interval).is_integer():
-						writemsg('.')
-			
-			# l is equal to the number of results
-			
+			writemsg(f"searching {file}:\n") # remove newline later
+			while True:
+				line = dbuf.readline()
+				if not line: break
+				l+=1
+				if (l/stdout_update_interval).is_integer():
+					writemsg('.')
+			# balls
+		
+		# l is equal to the number of lines checked
+		
 		sys.stdout.write('\n')
 		i+=1
 except KeyboardInterrupt:
