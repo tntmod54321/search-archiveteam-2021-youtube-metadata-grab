@@ -195,16 +195,18 @@ def main():
 			now=time.time()
 			with open(file, "rb") as f:
 				if stream_file:
-					print("streaming file")
+					# print("streaming file")
 					dobj = dctx.stream_reader(f) # stream file
 				else:
-					print("loading entire file")
+					# print("loading entire file")
 					dobj = dctx.stream_reader(f.read()) # load file into mem and stream the decoded data
 				dbuf = io.BufferedReader(dobj)
 				
 				L=0
 				
 				# test speed of multi-threaded streaming vs loading whole file into mem
+				# if no significant difference then just switch to streaming
+				
 				### search file
 				if single_threaded:
 					results={}
@@ -232,15 +234,16 @@ def main():
 					with concurrent.futures.ProcessPoolExecutor() as executor:
 						# load X amount of lines ?
 						
-						lines=[]
+						# lines=[]
 						for i in range(0, 5000000):
 							line = dbuf.readline()
-							lines.append(line)
 							if not line: break
+							# lines.append(line)
+							
 						elapsed=time.time()-now
 						# print(lines)
 						print(elapsed)
-						print(len(lines))
+						print(i)
 						time.sleep(10)
 						exit()
 						for number, prime in zip(PRIMES, executor.map(is_prime, PRIMES)):
