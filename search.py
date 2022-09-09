@@ -1,7 +1,3 @@
-if __name__ != "__main__":
-	print("not running as main, exiting...")
-	exit()
-
 import re
 import sys
 import json
@@ -10,7 +6,7 @@ import io
 import time
 from os import listdir, makedirs
 from os.path import isfile, isdir, splitext, split, join
-from multiprocessing.pool import ThreadPool
+from multiprocessing.pool import Pool
 import concurrent.futures
 from concurrent.futures import *
 import traceback
@@ -51,6 +47,7 @@ def searchline(string, expression):
 	return result
 
 def worker(tid, fbuffer, expressions):
+	print("worker online!!")
 	global reading_file
 	global shutdownflag
 	global L
@@ -84,8 +81,24 @@ def worker(tid, fbuffer, expressions):
 	
 	return
 
+def worker2(line, expressions):
+	# print("worker function called!!")
+	
+	string = line.decode("utf-8")
+	results={}
+	for expression in expressions.keys():
+		result = searchline(string, expression)
+		if result: results[str(uuid.uuid4())] = {"filename": expressions[expression], "binary": line}
+		# if result: results.append({"filename": expressions[expression], "binary": line})
+	
+	return results
+
+def worker3():
+	print("HI!!")
+	return
+
 def writeResults(results, outputdir):
-	keys = list(results.keys())
+	keys = list(results.keys()) # try to get a static ver so it doesn't change during iteration ? idk.
 	
 	file_results={}
 	for key in keys: # create file dicts
@@ -110,9 +123,7 @@ def printHelp():
 	exit()
 
 def main():
-	global reading_file
-	global shutdownflag
-	global L
+	global L # remove these ?
 	global results
 	
 	reading_file=False
@@ -122,7 +133,8 @@ def main():
 	query_json = ""
 	outputdir = ""
 	management_file = ""
-	workerthreads = 1 # change default to 2 or 4
+	single_threaded = False
+	stream_file = False
 	
 	if len(sys.argv[1:]) == 0: printHelp()
 	i=1 # for arguments like [--command value] get the value after the command
@@ -133,14 +145,13 @@ def main():
 		if (arg in ["-q", "--query-json"]): query_json = sys.argv[1:][i]
 		if (arg in ["-i", "--input-folder", "--files-folder"]): files_folder = sys.argv[1:][i]
 		if (arg in ["-m", "--search-management-file"]): management_file = sys.argv[1:][i]
-		if (arg in ["-t", "--threads"]): workerthreads = int(sys.argv[1:][i])
+		if (arg in ["--single-threaded"]): single_threaded = True # if False then let python decide
+		if (arg in ["--stream-files"]): stream_file = True # if False then let python decide
 		
 		i+=1
 
 	if "" in [files_folder, query_json, outputdir, management_file]: printHelp() # these args are critical, print help if not present
-	if workerthreads<1:
-		print("1 thread minimum")
-		exit()
+	if single_threaded: print("running single-threaded")
 
 	zstdfiles = find_files(files_folder, ".zst")
 	zstdfiles.sort()
@@ -155,7 +166,10 @@ def main():
 		results_files = []
 		for y in x:
 			results_files.append(y["filename"])
-
+	
+	# common test query
+	queries["ball"]="test.json"
+	
 	### create output folder
 	try:
 		makedirs(outputdir)
@@ -170,55 +184,91 @@ def main():
 		completed_files = []
 
 	### search zstd files
-	executor = ThreadPoolExecutor(max_workers=16) # will limit the amount of threads
 	dctx = zstd.ZstdDecompressor() # reuse decompressor object (docs recommend, woohoo!)
 	try:
 		for file in zstdfiles: # should remove searched files listed in management file earlier
 			if file in completed_files:
-				print(f"skipping file {file} (completed)")
+				print(f"skipping file {file} (completed)\n")
 				continue
 			
 			writemsg(f"searching {file}:\n")
+			now=time.time()
 			with open(file, "rb") as f:
-				dobj = dctx.stream_reader(f.read())
+				if stream_file:
+					print("streaming file")
+					dobj = dctx.stream_reader(f) # stream file
+				else:
+					print("loading entire file")
+					dobj = dctx.stream_reader(f.read()) # load file into mem and stream the decoded data
 				dbuf = io.BufferedReader(dobj)
-				now=time.time()
-				L=0
-				futures=[]
-				results={}
-				reading_file = False
-				threads_dead=False
-				for i in range(0, workerthreads):
-					future = executor.submit(worker, i, dbuf, queries)
-					futures.append(future)
 				
-				# wait for workers to die
-				while True:
-					if shutdownflag:
-						print("thread requested shutdown")
-						os._exit(0)
+				L=0
+				
+				# test speed of multi-threaded streaming vs loading whole file into mem
+				### search file
+				if single_threaded:
+					results={}
+					while True:
+						line=dbuf.readline()
+						if not line: break
+						### search message
+						line_results = worker2(line, queries)
+						if line_results:
+							for result in line_results.keys():
+								results[result]=line_results[result]
+						L+=1
+						# if (L/1000).is_integer(): writemsg('.') # could dump results every 1k lines
+						if (L/10000).is_integer():
+							writemsg('.') # could dump results every 1k lines
+							break
+				
+				else:
 					
-					if results: writeResults(results, outputdir) # make sure to dump all results to disk before moving on to next file
+					# hmm, assigning multiple expressions for a single line
+					# is only useful for running multiple queries.
+					# maybe make each thread request a line somehow? idk
 					
-					future_statuses=[]
-					for future in futures:
-						future_statuses.append(future.done())
+					# create worker thingy
+					with concurrent.futures.ProcessPoolExecutor() as executor:
+						# load X amount of lines ?
+						
+						lines=[]
+						for i in range(0, 5000000):
+							line = dbuf.readline()
+							lines.append(line)
+							if not line: break
+						elapsed=time.time()-now
+						# print(lines)
+						print(elapsed)
+						print(len(lines))
+						time.sleep(10)
+						exit()
+						for number, prime in zip(PRIMES, executor.map(is_prime, PRIMES)):
+							print('%d is prime: %s' % (number, prime))
 					
-					if threads_dead: break # leave while loop after flushing results
 					
-					# check if all threads are dead
-					if all(future_statuses): # we do another loop to make sure we flush the results to disk
-						threads_dead=True
-						continue
+					# do main-thread things
+					# if results: writeResults(results, outputdir)
 					
-					# time.sleep(0.01)
-					writemsg('.')
-					time.sleep(0.1)
-					# time.sleep(5)
+					print("balls, multithreaded")
+				
+				print()
+				print(f"{L} lines")
+				print(f"{len(results)} results")
+				# print(list(results.keys())[0])
+				print(results.keys())
+				# print(results)
+				
+				writeResults(results, outputdir)
+				
+				exit()
+			
+			print("main process exiting...")
+			os._exit(0)
 			
 			### update management file
 			completed_files.append(file)
-			with open(management_file, "wb") as f:
+			with open(management_file, "wb") as f: # overwrite old one with new one
 				f.write(json.dumps(completed_files).encode("utf-8"))
 			
 			sys.stdout.write('\n')
@@ -228,7 +278,8 @@ def main():
 		print("\nInterrupted!")
 		os._exit(0)
 
-main()
+if __name__ == "__main__":
+	main()
 
 # to add:
 # better logging (time taken, offset, results count, etc)
