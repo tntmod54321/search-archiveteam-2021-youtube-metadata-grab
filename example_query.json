@@ -1,1 +1,16 @@
-["noritake-itron", "beyonce", "dQw4w9WgXcQ"]
+[
+	{"filename": "vintage_display_tech.json", "expressions": [
+		"vacuum fluorescent display",
+		"panaplex",
+		"minitron",
+		"nixie tube"
+	]},
+	
+	{"filename": "pop_stars.json", "expressions": [
+		"beyonce"
+	]},
+	
+	{"filename": "video_ids.json", "expressions": [
+		"dQw4w9WgXcQ"
+	]}
+]

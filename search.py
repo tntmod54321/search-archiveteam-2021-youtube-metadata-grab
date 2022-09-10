@@ -68,13 +68,13 @@ def writeResults(results, outputdir):
 	
 	return
 
-### parse args
-# update help message
 def printHelp():
-	# print sections for different downloaders (programmatically -> _downloaders -> downloader.info["help"]
-	# list valid ebay resolutions (leave blank for the max available)
-	print("Usage:", "py ebay_archive.py [ID or URL] [OUTPUT DIRECTORY] [ADDITIONAL ARGUMENTS]\n\n"+
-	"Arguments:\n", "  -h, --help\t-\tdisplay this usage info")
+	print("Usage:", "py search.py -i [INPUT FOLDER] -o [RESULTS FILES FOLDER] -q [QUERY JSON FILE] -m [OUTPUT MANAGEMENT FILE]\n\n"+
+	"Arguments:\n", "  -h, --help\t\t\tdisplay this usage info\n",
+	"  -i, --input-folder\t\tinput folder containing the .zst metadata files\n",
+	"  -o, --output-dir\t\tfolder to output the results files\n",
+	"  -q, --query-json\t\tjson file containing your query(ies)\n",
+	"  -m, --search-management-file\tfile to keep track of which zst files have been searched")
 	exit()
 
 def main():
@@ -99,6 +99,7 @@ def main():
 	
 	zstdfiles = find_files(files_folder, ".zst")
 	zstdfiles.sort()
+	files_cnt = len(zstdfiles)
 	
 	### load queries
 	with open(query_json, "rb") as f:
@@ -171,7 +172,7 @@ def main():
 			
 			sys.stdout.write('\n')
 			elapsed=time.time()-now
-			print(f"took {elapsed} to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results")
+			print(f"({len(completed_files)}/{len(zstdfiles)}) took {round(elapsed, 2)}s to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results")
 		print(f"finished searching {len(completed_files)} files")
 	except KeyboardInterrupt:
 		print("\nInterrupted!")
@@ -179,7 +180,3 @@ def main():
 
 if __name__ == "__main__":
 	main()
-
-# to add:
-# better logging (time taken, offset, results count, etc)
-# estimated time to completion
