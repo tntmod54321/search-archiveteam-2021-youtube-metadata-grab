@@ -127,11 +127,15 @@ def main():
 	### load management file if exists
 	if isfile(management_file):
 		with open(management_file, "rb") as f:
-			completed_files = json.loads(f.read().decode("utf-8"))
+			m_file = json.loads(f.read().decode("utf-8"))
+			completed_files = m_file["c_files"]
+			cL = m_file["c_lines"]
 	else:
 		completed_files = []
+		cL=0
 	
 	### search zstd files
+	totallines = 4560000000 # 4.56b
 	dctx = zstd.ZstdDecompressor() # reuse decompressor object (docs recommend, woohoo!)
 	try:
 		for file in zstdfiles: # should remove searched files listed in management file earlier
@@ -155,6 +159,7 @@ def main():
 					### search message
 					line_results = worker2(line, queries)
 					if line_results:
+						writemsg('x')
 						for result in line_results.keys():
 							results[result]=line_results[result]
 							R+=1
@@ -167,12 +172,13 @@ def main():
 			
 			### update management file
 			completed_files.append(file)
+			cL += L
 			with open(management_file, "wb") as f: # overwrite old one with new one
-				f.write(json.dumps(completed_files).encode("utf-8"))
+				f.write(json.dumps({"c_files": completed_files, "c_lines": cL}).encode("utf-8"))
 			
 			sys.stdout.write('\n')
 			elapsed=time.time()-now
-			print(f"({len(completed_files)}/{len(zstdfiles)}) took {round(elapsed, 2)}s to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results")
+			print(f"({len(completed_files)}/{len(zstdfiles)}) took {round(elapsed, 2)}s to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results ({cL} lines total) ({round((cL/totallines)*100, 2)}% done searching)")
 		print(f"finished searching {len(completed_files)} files")
 	except KeyboardInterrupt:
 		print("\nInterrupted!")
