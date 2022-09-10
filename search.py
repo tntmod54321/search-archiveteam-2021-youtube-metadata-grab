@@ -176,9 +176,8 @@ def main():
 			with open(management_file, "wb") as f: # overwrite old one with new one
 				f.write(json.dumps({"c_files": completed_files, "c_lines": cL}).encode("utf-8"))
 			
-			sys.stdout.write('\n')
 			elapsed=time.time()-now
-			print(f"({len(completed_files)}/{len(zstdfiles)}) took {round(elapsed, 2)}s to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results ({cL} lines total) ({round((cL/totallines)*100, 2)}% done searching)")
+			print(f"({len(completed_files)}/{len(zstdfiles)}) took {round(elapsed, 2)}s to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results ({cL} lines total) ({round((cL/totallines)*100, 2)}% done searching)\n\n")
 		print(f"finished searching {len(completed_files)} files")
 	except KeyboardInterrupt:
 		print("\nInterrupted!")
