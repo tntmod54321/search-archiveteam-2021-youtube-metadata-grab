@@ -11,12 +11,7 @@ from concurrent.futures import *
 import traceback
 import uuid
 import os
-global reading_file
-global shutdownflag
-global L
-global results
 
-### build list of zstd files
 def find_files(fdir, fext):
 	directories = [fdir]
 	files = []
@@ -42,43 +37,8 @@ def writemsg(msg):
 
 def searchline(string, expression):
 	result=False
-	if expression.match(string): result=True
+	if expression.search(string, re.IGNORECASE): result=True
 	return result
-
-def worker(tid, fbuffer, expressions):
-	print("worker online!!")
-	global reading_file
-	global shutdownflag
-	global L
-	global results
-	
-	while True:
-		try:
-			while True: # get a line to process
-				if shutdownflag: exit()
-				
-				if reading_file: pass
-				else:
-					reading_file = True
-					line = fbuffer.readline()
-					reading_file = False
-					if not line: return # exit thread if no more file to process
-					break
-				time.sleep(0.01)
-			
-			string = line.decode("utf-8")
-			
-			for expression in expressions.keys():
-				result = searchline(string, expression)
-				if result: results[str(uuid.uuid4())] = {"filename": expressions[expression], "binary": line}
-			L+=1
-		except:
-			with open("errors", "a+") as f:
-				f.write(str(traceback.format_exc())+"\n") # traceback thing
-			shutdownflag=True
-			exit() # KILLLL
-	
-	return
 
 def worker2(line, expressions):
 	# print("worker function called!!")
@@ -91,10 +51,6 @@ def worker2(line, expressions):
 		# if result: results.append({"filename": expressions[expression], "binary": line})
 	
 	return results
-
-def worker3():
-	print("HI!!")
-	return
 
 def writeResults(results, outputdir):
 	keys = list(results.keys()) # try to get a static ver so it doesn't change during iteration ? idk.
@@ -112,12 +68,6 @@ def writeResults(results, outputdir):
 	
 	return
 
-def search_string(line, test):
-	results = []
-	result = re.search(r"ball", line.decode("utf-8"))
-	if result: results.append(line)
-	return results, test
-
 ### parse args
 # update help message
 def printHelp():
@@ -128,19 +78,10 @@ def printHelp():
 	exit()
 
 def main():
-	global L # remove these ?
-	global results
-	
-	reading_file=False
-	shutdownflag=False
-
 	files_folder = ""
 	query_json = ""
 	outputdir = ""
 	management_file = ""
-	single_threaded = False
-	stream_file = False
-	cachesize = 100000
 	
 	if len(sys.argv[1:]) == 0: printHelp()
 	i=1 # for arguments like [--command value] get the value after the command
@@ -151,19 +92,14 @@ def main():
 		if (arg in ["-q", "--query-json"]): query_json = sys.argv[1:][i]
 		if (arg in ["-i", "--input-folder", "--files-folder"]): files_folder = sys.argv[1:][i]
 		if (arg in ["-m", "--search-management-file"]): management_file = sys.argv[1:][i]
-		if (arg in ["--single-threaded"]): single_threaded = True # if False then let python decide
-		if (arg in ["--stream-files"]): stream_file = True
-		if (arg in ["--cachesize"]): cachesize = int(sys.argv[1:][i])
 		
 		i+=1
 
 	if "" in [files_folder, query_json, outputdir, management_file]: printHelp() # these args are critical, print help if not present
-	if single_threaded: print("running single-threaded")
-
+	
 	zstdfiles = find_files(files_folder, ".zst")
 	zstdfiles.sort()
 	
-	# COMPILE THESE QUERIES (SPEED)
 	### load queries
 	with open(query_json, "rb") as f:
 		queries={}
@@ -171,28 +107,29 @@ def main():
 		print("compiling queries")
 		for y in x:
 			for expression in y["expressions"]:
-				expression = re.compile(expression)
+				expression = re.compile(expression, re.IGNORECASE) # compile query(ies) for extra speed
 				queries[expression] = y["filename"]
 		results_files = []
 		for y in x:
 			results_files.append(y["filename"])
 	
 	# common test query
-	queries[re.compile("ball")]="test.json"
+	# expression = re.compile("BaLl", re.IGNORECASE)
+	# queries[expression]="test.json"
 	
 	### create output folder
 	try:
 		makedirs(outputdir)
 	except FileExistsError:
 		pass
-
+	
 	### load management file if exists
 	if isfile(management_file):
 		with open(management_file, "rb") as f:
 			completed_files = json.loads(f.read().decode("utf-8"))
 	else:
 		completed_files = []
-
+	
 	### search zstd files
 	dctx = zstd.ZstdDecompressor() # reuse decompressor object (docs recommend, woohoo!)
 	try:
@@ -204,85 +141,28 @@ def main():
 			writemsg(f"searching {file}:\n")
 			now=time.time()
 			with open(file, "rb") as f:
-				if stream_file:
-					# print("streaming file")
-					dobj = dctx.stream_reader(f) # stream file
-				else:
-					# print("loading entire file")
-					dobj = dctx.stream_reader(f.read()) # load file into mem and stream the decoded data
+				dobj = dctx.stream_reader(f) # stream file
 				dbuf = io.BufferedReader(dobj)
 				
 				L=0
-				
-				# test speed of multi-threaded streaming vs loading whole file into mem
-				# if no significant difference then just switch to streaming
-				
+				R=0
 				### search file
-				if single_threaded:
-					results={}
-					while True:
-						line=dbuf.readline()
-						if not line: break
-						### search message
-						line_results = worker2(line, queries)
-						if line_results:
-							for result in line_results.keys():
-								results[result]=line_results[result]
-						L+=1
-						# if (L/1000).is_integer(): writemsg('.') # could dump results every 1k lines
-						if (L/1000).is_integer():
-							writemsg('.') # could dump results every 1k lines
-							# break
-				
-				else:
-					
-					# hmm, assigning multiple expressions for a single line
-					# is only useful for running multiple queries.
-					# maybe make each thread request a line somehow? idk
-					
-					print("balls, multithreaded")
-					
-					# create worker thingy
-					with concurrent.futures.ProcessPoolExecutor() as executor:
-						while True:
-							# cache lines
-							lines=[]
-							for i in range(0, cachesize+1):
-								line = dbuf.readline()
-								if not line: break
-								lines.append(line)
-							if not lines: break # when we've went through every line of the file we break
-							
-							print(i)
-							
-							results = []
-							test=True
-							for result, test in executor.map(search_string, lines, test):
-								print(test)
-								if result: print(result)
-							
-							exit()
-					
-					
-					# do main-thread things
-					# if results: writeResults(results, outputdir)
-					
-				
-				print()
-				print(f"{L} lines")
-				print(f"{len(results)} results")
-				# print(list(results.keys())[0])
-				# print(results.keys())
-				# print(results)
-				
-				print(f"took {time.time()-now} seconds")
-				
-				writeResults(results, outputdir)
-				
-				exit()
+				results={}
+				while True:
+					line=dbuf.readline()
+					if not line: break
+					### search message
+					line_results = worker2(line, queries)
+					if line_results:
+						for result in line_results.keys():
+							results[result]=line_results[result]
+							R+=1
+					L+=1
+					if (L/1000).is_integer(): writemsg('.') # could dump results every 1k lines
+				writemsg("\n")
 			
-			print("main process exiting...")
-			os._exit(0)
+			### dump found results to disk
+			writeResults(results, outputdir)
 			
 			### update management file
 			completed_files.append(file)
@@ -291,7 +171,8 @@ def main():
 			
 			sys.stdout.write('\n')
 			elapsed=time.time()-now
-			print(f"took {elapsed} to search {L} lines ({round(L/elapsed, 2)}/s)")
+			print(f"took {elapsed} to search {L} lines ({round(L/elapsed, 2)}/s), found {R} results")
+		print(f"finished searching {len(completed_files)} files")
 	except KeyboardInterrupt:
 		print("\nInterrupted!")
 		os._exit(0)
