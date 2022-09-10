@@ -11,3 +11,4 @@ PRs welcome.
 needed improvements:  
 * mutlicore regexing (search multiple lines at once?)  
 * log the amount of lines read so far (just save 'L'+previous amount when you save the management file) so that you can display an accurate remaining percentage
+* make it print an X or something when it gets a hit
