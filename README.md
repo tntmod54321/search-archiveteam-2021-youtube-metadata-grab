@@ -11,3 +11,4 @@ PRs welcome.
   
 needed improvements:  
 * mutlicore regexing (search multiple lines at once?)  
+* make management file cross-compat with rust ver
