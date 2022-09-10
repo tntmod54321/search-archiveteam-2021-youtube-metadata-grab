@@ -6,7 +6,6 @@ import io
 import time
 from os import listdir, makedirs
 from os.path import isfile, isdir, splitext, split, join
-from multiprocessing.pool import Pool
 import concurrent.futures
 from concurrent.futures import *
 import traceback
@@ -43,7 +42,7 @@ def writemsg(msg):
 
 def searchline(string, expression):
 	result=False
-	if re.search(expression, string): result=True
+	if expression.match(string): result=True
 	return result
 
 def worker(tid, fbuffer, expressions):
@@ -113,6 +112,12 @@ def writeResults(results, outputdir):
 	
 	return
 
+def search_string(line, test):
+	results = []
+	result = re.search(r"ball", line.decode("utf-8"))
+	if result: results.append(line)
+	return results, test
+
 ### parse args
 # update help message
 def printHelp():
@@ -135,6 +140,7 @@ def main():
 	management_file = ""
 	single_threaded = False
 	stream_file = False
+	cachesize = 100000
 	
 	if len(sys.argv[1:]) == 0: printHelp()
 	i=1 # for arguments like [--command value] get the value after the command
@@ -146,7 +152,8 @@ def main():
 		if (arg in ["-i", "--input-folder", "--files-folder"]): files_folder = sys.argv[1:][i]
 		if (arg in ["-m", "--search-management-file"]): management_file = sys.argv[1:][i]
 		if (arg in ["--single-threaded"]): single_threaded = True # if False then let python decide
-		if (arg in ["--stream-files"]): stream_file = True # if False then let python decide
+		if (arg in ["--stream-files"]): stream_file = True
+		if (arg in ["--cachesize"]): cachesize = int(sys.argv[1:][i])
 		
 		i+=1
 
@@ -155,20 +162,23 @@ def main():
 
 	zstdfiles = find_files(files_folder, ".zst")
 	zstdfiles.sort()
-
+	
+	# COMPILE THESE QUERIES (SPEED)
 	### load queries
 	with open(query_json, "rb") as f:
 		queries={}
 		x = json.loads(f.read().decode("utf-8"))
+		print("compiling queries")
 		for y in x:
 			for expression in y["expressions"]:
+				expression = re.compile(expression)
 				queries[expression] = y["filename"]
 		results_files = []
 		for y in x:
 			results_files.append(y["filename"])
 	
 	# common test query
-	queries["ball"]="test.json"
+	queries[re.compile("ball")]="test.json"
 	
 	### create output folder
 	try:
@@ -220,9 +230,9 @@ def main():
 								results[result]=line_results[result]
 						L+=1
 						# if (L/1000).is_integer(): writemsg('.') # could dump results every 1k lines
-						if (L/10000).is_integer():
+						if (L/1000).is_integer():
 							writemsg('.') # could dump results every 1k lines
-							break
+							# break
 				
 				else:
 					
@@ -230,37 +240,42 @@ def main():
 					# is only useful for running multiple queries.
 					# maybe make each thread request a line somehow? idk
 					
+					print("balls, multithreaded")
+					
 					# create worker thingy
 					with concurrent.futures.ProcessPoolExecutor() as executor:
-						# load X amount of lines ?
-						
-						# lines=[]
-						for i in range(0, 5000000):
-							line = dbuf.readline()
-							if not line: break
-							# lines.append(line)
+						while True:
+							# cache lines
+							lines=[]
+							for i in range(0, cachesize+1):
+								line = dbuf.readline()
+								if not line: break
+								lines.append(line)
+							if not lines: break # when we've went through every line of the file we break
 							
-						elapsed=time.time()-now
-						# print(lines)
-						print(elapsed)
-						print(i)
-						time.sleep(10)
-						exit()
-						for number, prime in zip(PRIMES, executor.map(is_prime, PRIMES)):
-							print('%d is prime: %s' % (number, prime))
+							print(i)
+							
+							results = []
+							test=True
+							for result, test in executor.map(search_string, lines, test):
+								print(test)
+								if result: print(result)
+							
+							exit()
 					
 					
 					# do main-thread things
 					# if results: writeResults(results, outputdir)
 					
-					print("balls, multithreaded")
 				
 				print()
 				print(f"{L} lines")
 				print(f"{len(results)} results")
 				# print(list(results.keys())[0])
-				print(results.keys())
+				# print(results.keys())
 				# print(results)
+				
+				print(f"took {time.time()-now} seconds")
 				
 				writeResults(results, outputdir)
 				
