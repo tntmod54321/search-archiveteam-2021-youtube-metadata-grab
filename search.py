@@ -135,7 +135,7 @@ def main():
 		cL=0
 	
 	### search zstd files
-	totallines = 4560000000 # 4.56b
+	totallines = 4557605031 # 4.56b
 	dctx = zstd.ZstdDecompressor() # reuse decompressor object (docs recommend, woohoo!)
 	try:
 		for file in zstdfiles: # should remove searched files listed in management file earlier
