@@ -1,6 +1,8 @@
 # search archiveteam 2021 youtube metadata grab
 Search jopik/archiveteam's december 2021 youtube metadata grab without decompressing the zstd files to disk  
-https://www.reddit.com/r/DataHoarder/comments/rsu7lf/dislikes_and_other_metadata_for_456_billion/
+https://www.reddit.com/r/DataHoarder/comments/rsu7lf/dislikes_and_other_metadata_for_456_billion/  
+My friend reimplemented this tool in rust with multiprocessing:  
+https://github.com/Measter/ytmetasearch
 # NO SUPPORT NO WARRANTY ETC
 
 ### use --help
